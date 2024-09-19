@@ -1,0 +1,12 @@
+#! /bin/bash
+
+set -ue
+
+if [[ "${1:-}" = "" ]]; then
+    echo "USAGE: $0 <hostname>"
+    exit 1
+fi
+
+export TARGET_HOST=$1
+cd "$(dirname "$(realpath "$0")")"
+exec ansible-playbook playbook.yml
