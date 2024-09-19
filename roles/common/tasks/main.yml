@@ -1,0 +1,29 @@
+- name: Set a correct host name
+  hostname:
+    name: '{{ inventory_hostname }}'
+
+- name: Install basic packages
+  package:
+    state: present
+    name:
+      - vim
+      - wget
+      - curl
+      - jq
+
+- name: Disable motd
+  systemd:
+    name: motd-news.timer
+    state: stopped
+    enabled: no
+
+- name: Patch ssh pamd to disable motd
+  shell:
+    cmd: sed -i '/pam_motd/d' /etc/pam.d/sshd && touch /etc/ansible-pam-done
+    creates: /etc/ansible-pam-done
+
+- name: Patch ssh config to disable last log
+  shell:
+    cmd: sed -i 's/#PrintLastLog yes/PrintLastLog no/' /etc/ssh/sshd_config && touch /etc/ansible-ssh-done
+    creates: /etc/ansible-ssh-done
+  notify: Restart ssh

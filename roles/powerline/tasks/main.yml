@@ -1,0 +1,33 @@
+- name: Check if powerline was already downloaded
+  stat:
+    path: /usr/bin/powerline-go
+  register: powerline
+
+- name: Gather OS info to download the correct version
+  setup:
+    filter:
+      - ansible_system
+      - ansible_machine
+  when: powerline.stat.exists == False
+
+- name: Download powerline
+  get_url:
+    url: "{{ lookup('latest_github_release', 'justjanne/powerline-go', 'powerline-go-{system}-{machine}', ansible_facts) }}"
+    dest: /usr/bin/powerline-go
+    mode: '0755'
+  when: powerline.stat.exists == False
+
+- name: Copy powerline config
+  copy:
+    src: files/powerline.bash
+    dest: /etc/powerline.bash
+    mode: '0644'
+  when: powerline.stat.exists == False
+
+- name: Copy global bashrc
+  copy:
+    src: files/bash.bashrc
+    dest: /etc/bash.bashrc
+    mode: '0644'
+  when: powerline.stat.exists == False
+
