@@ -1,0 +1,10 @@
+- name: Configure paulus
+  copy:
+    src: files/
+    dest: /home/paulus
+    owner: paulus
+
+- name: Configure root
+  copy:
+    src: files/
+    dest: /root
