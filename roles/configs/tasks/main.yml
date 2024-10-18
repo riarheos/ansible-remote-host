@@ -1,10 +1,22 @@
-- name: Configure paulus
+- name: Create user paulus
+  user:
+    name: paulus
+    shell: /bin/bash
+    groups: sudo
+
+- name: Configure home for paulus
   copy:
-    src: files/
+    src: home/
     dest: /home/paulus
     owner: paulus
+    group: paulus
 
-- name: Configure root
+- name: Configure home for root
   copy:
-    src: files/
+    src: home/
     dest: /root
+
+- name: Configure etc
+  copy:
+    src: etc/
+    dest: /etc
