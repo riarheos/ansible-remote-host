@@ -11,6 +11,8 @@ class LookupModule(LookupBase):
 
         if facts['machine'] == 'x86_64':
             facts['machine'] = 'amd64'
+        if facts['machine'] == 'aarch64':
+            facts['machine'] = 'arm64'
 
         res = requests.get('https://api.github.com/repos/%s/releases/latest' % url)
         res.raise_for_status()
