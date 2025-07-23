@@ -2,6 +2,11 @@
   hostname:
     name: '{{ inventory_hostname }}'
 
+- name: Perform apt-upgrade
+  apt:
+    upgrade: dist
+    update_cache: true
+
 - name: Install basic packages
   apt:
     update_cache: true
@@ -11,6 +16,17 @@
       - wget
       - curl
       - jq
+
+- name: Remove junk packages
+  apt:
+    state: absent
+    purge: true
+    autoremove: true
+    name:
+      - modemmanager
+      - unattended-upgrades
+      - gpg-agent
+      - needrestart
 
 - name: Disable motd
   systemd:
