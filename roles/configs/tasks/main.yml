@@ -4,12 +4,17 @@
     shell: /bin/bash
     groups: sudo
 
+- name: Get default group
+  ansible.builtin.getent:
+    database: passwd
+    key: paulus
+
 - name: Configure home for paulus
   copy:
     src: home/
     dest: /home/paulus
     owner: paulus
-    group: paulus
+    group: "{{ ansible_facts.getent_passwd['paulus'][2] }}"
 
 - name: Configure home for root
   copy:
