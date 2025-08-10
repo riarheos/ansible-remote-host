@@ -16,7 +16,7 @@ if [ $(ls -di / | awk '{print $1}') != "2" ]; then
         PLGO_EXTRA="chroot"
     fi
 fi
-PLGO_MODULES+=("host" "cwd")
+PLGO_MODULES+=("venv" "host" "cwd")
 PLGO_MODULES=$(echo ${PLGO_MODULES[@]} | sed 's/ /,/g')
 
 function _update_ps1() {
