@@ -1,7 +1,3 @@
-- name: Set a correct host name
-  hostname:
-    name: '{{ inventory_hostname }}'
-
 - name: Perform apt-upgrade
   apt:
     upgrade: dist

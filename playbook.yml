@@ -3,4 +3,5 @@
   roles:
     - common
     - powerline
+    - non-cloud
     - configs

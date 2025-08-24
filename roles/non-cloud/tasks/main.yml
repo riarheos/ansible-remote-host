@@ -1,3 +1,13 @@
+- name: Set a correct host name
+  hostname:
+    name: '{{ inventory_hostname }}'
+
+- name: Create user paulus
+  user:
+    name: paulus
+    shell: /bin/bash
+    groups: sudo
+
 - name: Get default group
   ansible.builtin.getent:
     database: passwd
@@ -14,3 +24,8 @@
   copy:
     src: home/
     dest: /root
+
+- name: Configure etc
+  copy:
+    src: etc/
+    dest: /etc
