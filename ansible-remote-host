@@ -9,4 +9,4 @@ fi
 
 export TARGET_HOST=$1
 cd "$(dirname "$(realpath "$0")")"
-exec ansible-playbook playbook.yml
+exec ansible-playbook -i inventory.py playbook.yml
