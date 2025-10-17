@@ -40,3 +40,9 @@
     cmd: sed -i 's/#PrintLastLog yes/PrintLastLog no/' /etc/ssh/sshd_config && touch /etc/ansible-ssh-done
     creates: /etc/ansible-ssh-done
   notify: Restart ssh
+
+- name: Set correct timezone
+  file:
+    state: link
+    src: /usr/share/zoneinfo/Europe/Moscow
+    dest: /etc/localtime
