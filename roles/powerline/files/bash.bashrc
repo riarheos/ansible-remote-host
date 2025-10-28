@@ -60,3 +60,5 @@ fi
 if [ -f /etc/powerline.bash ]; then
     . /etc/powerline.bash
 fi
+
+alias ip='ip --color'
