@@ -29,6 +29,7 @@
     name: motd-news.timer
     state: stopped
     enabled: no
+  when: ansible_facts['distribution'] == "Ubuntu"
 
 - name: Patch ssh pamd to disable motd
   shell:

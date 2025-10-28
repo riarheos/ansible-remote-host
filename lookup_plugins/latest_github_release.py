@@ -7,7 +7,7 @@ class LookupModule(LookupBase):
         url, tmpl, facts = terms
 
         for key in facts:
-            facts[key] = facts[key].lower()
+            facts[key] = str(facts[key]).lower()
 
         if facts['machine'] == 'x86_64':
             facts['machine'] = 'amd64'
