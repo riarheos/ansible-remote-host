@@ -11,6 +11,9 @@ if key not in os.environ:
 result = {
     'all': {
         'hosts': [os.environ[key]],
-    }
+    },
+    '_meta': {
+        'hostvars': {},
+    },
 }
 print(json.dumps(result))
