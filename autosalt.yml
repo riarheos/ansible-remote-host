@@ -1,0 +1,287 @@
+---
+- import_playbook: autobook.yml
+
+- name: Bootstrap a Salt master
+  hosts: 127.0.0.1
+  connection: local
+  become: true
+  vars:
+    salt_release: '3008'
+    salt_git_repo: https://git.sourcecraft.dev/paulmd/paulus-cloud-infra.git
+    salt_git_branch: master
+    salt_git_root: salt
+
+  handlers:
+    - name: Restart salt-master
+      ansible.builtin.systemd_service:
+        name: salt-master
+        state: restarted
+
+  tasks:
+    - name: Require Ubuntu 26.04
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version == '26.04'
+
+    - name: Read bootstrap coordinates supplied by cloud-init
+      ansible.builtin.include_vars:
+        file: /etc/salt-bootstrap.json
+        name: salt_bootstrap
+
+    - name: Validate bootstrap coordinates
+      ansible.builtin.assert:
+        that:
+          - salt_bootstrap.secret_id | length > 0
+          - salt_bootstrap.version_id | length > 0
+
+    - name: Get the VM service account token
+      ansible.builtin.uri:
+        url: http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token
+        headers:
+          Metadata-Flavor: Google
+        use_proxy: false
+        return_content: true
+      register: salt_iam
+      until: salt_iam.status | default(0) == 200
+      retries: 12
+      delay: 5
+      no_log: true
+
+    - name: Read the shared bootstrap credentials from Lockbox
+      ansible.builtin.uri:
+        url: "https://payload.lockbox.api.cloud.yandex.net/lockbox/v1/secrets/{{ salt_bootstrap.secret_id }}/payload?versionId={{ salt_bootstrap.version_id }}"
+        headers:
+          Authorization: "Bearer {{ salt_iam.json.access_token }}"
+        return_content: true
+      register: salt_lockbox
+      until: salt_lockbox.status | default(0) == 200
+      retries: 24
+      delay: 5
+      no_log: true
+
+    - name: Decode Lockbox text entries
+      ansible.builtin.set_fact:
+        salt_credentials: "{{ salt_lockbox.json.entries | items2dict(key_name='key', value_name='textValue') }}"
+      no_log: true
+
+    - name: Check required credentials exist
+      ansible.builtin.assert:
+        that:
+          - salt_credentials['master.pem'] | length > 0
+          - salt_credentials['sourcecraft-token'] | trim | length > 0
+      no_log: true
+
+    - name: Install repository prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, git, openssl]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create Salt directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - {path: /etc/apt/keyrings, mode: '0755'}
+        - {path: /etc/salt/master.d, mode: '0755'}
+        - {path: /etc/salt/pki/master, mode: '0700'}
+        - {path: /etc/salt/git, mode: '0700'}
+
+    - name: Download Salt repository signing key
+      ansible.builtin.get_url:
+        url: https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public
+        dest: /etc/apt/keyrings/salt-archive-keyring.asc
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure Salt package repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/salt.sources
+        mode: '0644'
+        content: |
+          Types: deb
+          URIs: https://packages.broadcom.com/artifactory/saltproject-deb/
+          Suites: stable
+          Components: main
+          Signed-By: /etc/apt/keyrings/salt-archive-keyring.asc
+
+    - name: Pin Salt to the selected LTS series
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/salt-pin-1001
+        mode: '0644'
+        content: |
+          Package: salt-*
+          Pin: version {{ salt_release }}.*
+          Pin-Priority: 1001
+
+    - name: Install Salt without starting an unconfigured master
+      ansible.builtin.apt:
+        name: "salt-master={{ salt_release }}.*"
+        state: present
+        update_cache: true
+        policy_rc_d: 101
+      notify: Restart salt-master
+
+    - name: Install the shared master private key
+      ansible.builtin.copy:
+        content: "{{ salt_credentials['master.pem'] | trim }}\n"
+        dest: /etc/salt/pki/master/master.pem
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+      diff: false
+      notify: Restart salt-master
+
+    - name: Derive the matching master public key
+      ansible.builtin.command:
+        argv: [openssl, rsa, -in, /etc/salt/pki/master/master.pem, -pubout]
+      register: salt_master_public
+      changed_when: false
+
+    - name: Install the shared master public key
+      ansible.builtin.copy:
+        content: "{{ salt_master_public.stdout }}\n"
+        dest: /etc/salt/pki/master/master.pub
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart salt-master
+
+    - name: Install the SourceCraft read-only token
+      ansible.builtin.copy:
+        content: "{{ salt_credentials['sourcecraft-token'] | trim }}\n"
+        dest: /etc/salt/git/sourcecraft-token
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+      diff: false
+      notify: Restart salt-master
+
+    - name: Install the repository-scoped Git credential helper
+      ansible.builtin.copy:
+        dest: /etc/salt/git/credential-helper
+        owner: root
+        group: root
+        mode: '0700'
+        content: |
+          #!/usr/bin/python3
+          import sys
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          if sys.argv[1:] != ['get']:
+              sys.exit(0)
+          fields = {}
+          for line in sys.stdin:
+              line = line.rstrip('\n')
+              if not line:
+                  break
+              key, separator, value = line.partition('=')
+              if separator:
+                  fields[key] = value
+          repo = urlsplit({{ salt_git_repo | to_json }})
+          if (fields.get('protocol'), fields.get('host'), fields.get('path')) != (
+              repo.scheme, repo.netloc, repo.path.lstrip('/')
+          ):
+              sys.exit(0)
+          token = Path('/etc/salt/git/sourcecraft-token').read_text().strip()
+          if not token or any(c in token for c in '\r\n\0'):
+              sys.exit('Invalid SourceCraft token file')
+          sys.stdout.write('username=git\npassword=' + token + '\n\n')
+      notify: Restart salt-master
+
+    # gitcli delegates HTTPS authentication to Git. Keep the token out of the
+    # remote URL, command arguments, Git config, and Salt config.
+    - name: Configure HTTPS credentials for the Salt repository only
+      ansible.builtin.blockinfile:
+        path: /root/.gitconfig
+        create: true
+        mode: '0600'
+        marker: '# {mark} ANSIBLE SALT SOURCECRAFT'
+        block: |
+          [credential "{{ salt_git_repo }}"]
+              useHttpPath = true
+              helper =
+              helper = /etc/salt/git/credential-helper
+      notify: Restart salt-master
+
+    - name: Verify token access and the configured branch
+      ansible.builtin.command:
+        argv: [git, ls-remote, --exit-code, "{{ salt_git_repo }}", "refs/heads/{{ salt_git_branch }}"]
+      environment:
+        GIT_TERMINAL_PROMPT: '0'
+      register: salt_git_access
+      changed_when: false
+      until: salt_git_access.rc == 0
+      retries: 5
+      delay: 10
+
+    - name: Configure the master
+      ansible.builtin.copy:
+        dest: /etc/salt/master.d/autosalt.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Cloud security groups admit Salt traffic only from private subnets.
+          user: root
+          interface: 0.0.0.0
+          auto_accept: true
+          open_mode: false
+          pki_dir: /etc/salt/pki/master
+          fileserver_backend:
+            - gitfs
+          gitfs_provider: gitcli
+          gitfs_base: {{ salt_git_branch | to_json }}
+          gitfs_root: {{ salt_git_root | to_json }}
+          gitfs_saltenv_whitelist:
+            - base
+          gitfs_update_interval: 60
+          gitfs_remotes:
+            - {{ salt_git_repo | to_json }}
+      notify: Restart salt-master
+
+    - name: Initialize the Git fileserver cache
+      ansible.builtin.command:
+        argv: [salt-run, --out=json, fileserver.update, backend=gitfs]
+      changed_when: false
+
+    - name: Read the base environment file list
+      ansible.builtin.command:
+        argv: [salt-run, --out=json, fileserver.file_list, saltenv=base, backend=gitfs]
+      register: salt_base_files
+      changed_when: false
+
+    - name: Require the Salt base to be available before completing bootstrap
+      ansible.builtin.assert:
+        that:
+          - "'top.sls' in (salt_base_files.stdout | from_json)"
+        fail_msg: Commit and push salt/top.sls to the configured branch before booting the nodes.
+
+    - name: Apply pending master configuration
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the master
+      ansible.builtin.systemd_service:
+        name: salt-master
+        enabled: true
+        state: started
+
+    - name: Wait for both Salt master ports
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ item }}"
+        timeout: 60
+      loop: [4505, 4506]
+
+    - name: Verify the master service remains active
+      ansible.builtin.command: systemctl is-active salt-master
+      changed_when: false
