@@ -3,10 +3,12 @@
 set -ue
 
 if [[ "${1:-}" = "" ]]; then
-    echo "USAGE: $0 <hostname>"
+    echo "USAGE: $0 <hostname> [<ansible-playbook arg> ...]"
     exit 1
 fi
 
 export TARGET_HOST=$1
+shift
+
 cd "$(dirname "$(realpath "$0")")"
-exec ansible-playbook -i inventory.py playbook.yml
+exec .venv/bin/ansible-playbook -i inventory.py playbook.yml "$@"

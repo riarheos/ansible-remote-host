@@ -1,7 +1,14 @@
 - name: Apply roles
   hosts: all
   roles:
-    - common
-    - powerline
-    - non-cloud
-    - configs
+    - role: common
+      tags: [common]
+
+    - role: powerline
+      tags: [powerline]
+
+    - role: non-cloud
+      tags: [non-cloud]
+
+    - role: configs
+      tags: [configs]
