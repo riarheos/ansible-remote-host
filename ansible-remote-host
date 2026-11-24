@@ -11,4 +11,4 @@ export TARGET_HOST=$1
 shift
 
 cd "$(dirname "$(realpath "$0")")"
-exec .venv/bin/ansible-playbook -i inventory.py playbook.yml "$@"
+exec ansible-playbook -i inventory.py playbook.yml "$@"
